@@ -75,6 +75,9 @@ def calculate():
         if "Spear" in weapon_key:
             spear_primary = prim_raw * 3.0
             min_dmg = (spear_primary * 0.9 * mastery + secondary) * ATT / 100.0
+        elif "Polearm" in weapon_key:
+            spear_primary = prim_raw * 3.0
+            min_dmg = (spear_primary * 0.9 * mastery + secondary) * ATT / 100.0    
         else:
             min_dmg = (primary * 0.9 * mastery + secondary) * ATT / 100.0
 
@@ -91,3 +94,4 @@ def calculate():
 
 #if __name__ == "__main__":
 #    app.run(debug=True)
+
