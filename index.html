@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MapleStory Damage Calculator</title>
+<style>
+  body {
+    background: #9fc9ff;
+    font-family: sans-serif;
+    margin: 0;
+    text-align: center;
+  }
+  h1 {
+    margin: 20px 0;
+    font-size: 2em;
+    color: #003366;
+  }
+  .equipment-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    width: 100%;
+  }
+  .equipment {
+    position: relative;
+    width: 30vw;
+    max-width: 1224px;
+    aspect-ratio: 306 / 351;
+    background: url("{{ url_for('static', filename='equipment.png') }}") no-repeat center/contain;
+  }
+  .slot {
+    position: absolute;
+    border: 2px solid transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .slot:hover {
+    border: 2px solid yellow;
+  }
+  .stats {
+    position: absolute;
+    bottom: 2%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    font-size: 0.60vw;
+    line-height: 1em;
+    border-radius: 4px;
+    padding: 1px 3px;
+    white-space: pre-line;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  /* Popup form */
+  #popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.3);
+    display: none;
+    z-index: 10;
+    font-family: sans-serif;
+  }
+  #popup h3 {
+    margin-top: 0;
+    text-align: center;
+  }
+  #popup label {
+    display: flex;
+    justify-content: space-between;
+    margin: 4px 0;
+    font-size: 0.9em;
+  }
+  #popup input {
+    width: 60px;
+    text-align: right;
+  }
+  #popup button {
+    margin-top: 10px;
+    padding: 5px 10px;
+    border: none;
+    background: #0078ff;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #popup button:hover {
+    background: #005fcc;
+  }
+  #overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.4);
+    display: none;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<h1>MapleStory Damage Calculator</h1>
+
+<div class="equipment-wrapper">
+  <div class="equipment" id="equipGrid"></div>
+</div>
+
+<!-- Popup form -->
+<div id="overlay"></div>
+<div id="popup">
+  <h3 id="popupTitle">Edit Slot</h3>
+  <form id="statForm">
+    <label>STR: <input type="number" name="STR"></label>
+    <label>DEX: <input type="number" name="DEX"></label>
+    <label>INT: <input type="number" name="INT"></label>
+    <label>LUK: <input type="number" name="LUK"></label>
+    <label>ATT: <input type="number" name="ATT"></label>
+    <label>M.ATT: <input type="number" name="M.ATT"></label>
+    <div style="text-align:center;">
+      <button type="submit">Save</button>
+      <button type="button" id="cancelBtn">Cancel</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const slots = [
+  {name:'hat',      top:12,  left:31.5, w:12, h:10},
+  {name:'face',     top:23,  left:31.5, w:12, h:10},
+  {name:'eye',      top:33.5,  left:43.5, w:12, h:10},
+  {name:'ear',      top:33.5,  left:56, w:12, h:10},
+  {name:'pendant',  top:44.5,  left:43.5, w:12, h:10},
+  {name:'clothes',  top:44.5,  left:31.5, w:12, h:10},
+  {name:'pants',    top:55,  left:31.5, w:12, h:10},
+  {name:'shoes',    top:55,  left:43.5, w:12, h:10},
+  {name:'weapon',   top:44.5,  left:56, w:12, h:10},
+  {name:'shield',   top:44.5,  left:68.5, w:12, h:10},
+  {name:'cape',     top:44.5,  left:19, w:12, h:10},
+  {name:'gloves',   top:55,  left:19, w:12, h:10},
+  {name:'ring1',    top:23,  left:56, w:12, h:10},
+  {name:'ring2',    top:23,  left:68.5, w:12, h:10},
+  {name:'ring3',    top:55,  left:56, w:12, h:10},
+  {name:'ring4',    top:55,  left:68.5, w:13, h:11}
+];
+
+const grid = document.getElementById('equipGrid');
+const slotData = JSON.parse(localStorage.getItem('slotData') || '{}');
+let currentSlot = null;
+
+// Build clickable areas
+slots.forEach(s => {
+    const el = document.createElement('div');
+    el.className = 'slot';
+    el.style.top = s.top + '%';
+    el.style.left = s.left + '%';
+    el.style.width = s.w + '%';
+    el.style.height = s.h + '%';
+    el.dataset.name = s.name;
+    el.onclick = () => openPopup(s.name, el);
+    grid.appendChild(el);
+
+    // Load saved overlay (if exists)
+    const saved = slotData[s.name];
+    if (saved) addOverlay(el, saved);
+});
+
+// Popup logic
+const popup = document.getElementById('popup');
+const overlay = document.getElementById('overlay');
+const form = document.getElementById('statForm');
+const cancelBtn = document.getElementById('cancelBtn');
+const popupTitle = document.getElementById('popupTitle');
+
+function openPopup(slotName, element) {
+  currentSlot = { name: slotName, el: element };
+  popupTitle.textContent = `Edit ${slotName.toUpperCase()}`;
+  const values = slotData[slotName] || {};
+  form.querySelectorAll('input').forEach(input => {
+    input.value = values[input.name] || '';
+  });
+  popup.style.display = 'block';
+  overlay.style.display = 'block';
+}
+
+cancelBtn.onclick = () => {
+  popup.style.display = 'none';
+  overlay.style.display = 'none';
+};
+
+form.onsubmit = e => {
+  e.preventDefault();
+  if (!currentSlot) return;
+
+  const formData = new FormData(form);
+  const values = {};
+  formData.forEach((val, key) => {
+    if (val.trim() !== '' && val.trim() !== '0') values[key] = val.trim();
+  });
+
+  // Save in memory & localStorage
+  slotData[currentSlot.name] = values;
+  localStorage.setItem('slotData', JSON.stringify(slotData));
+
+  // Update overlay
+  const old = currentSlot.el.querySelector('.stats');
+  if (old) old.remove();
+  if (Object.keys(values).length > 0) addOverlay(currentSlot.el, values);
+
+  popup.style.display = 'none';
+  overlay.style.display = 'none';
+};
+
+function addOverlay(el, values) {
+  const text = Object.entries(values)
+    .map(([k, v]) => `${k}:${v}`)
+    .join(' ');
+  const overlayDiv = document.createElement('div');
+  overlayDiv.className = 'stats';
+  overlayDiv.textContent = text;
+  el.appendChild(overlayDiv);
+}
+</script>
+
+<h3>Character Stats</h3>
+
+<label>Job:
+  <select id="jobSelect"></select>
+</label><br>
+
+<label>Level:
+  <input type="number" id="level" value="1" min="1">
+</label><br><br>
+
+<label><input type="checkbox" id="mw20"> MW20 (+10%)</label>
+<label><input type="checkbox" id="mw30"> MW30 (+13%)</label>
+
+<script>
+const mw20Checkbox = document.getElementById("mw20");
+const mw30Checkbox = document.getElementById("mw30");
+
+[mw20Checkbox, mw30Checkbox].forEach(cb => {
+    cb.addEventListener("change", () => {
+        if (cb.checked) {
+            // uncheck the other
+            [mw20Checkbox, mw30Checkbox].forEach(other => {
+                if (other !== cb) other.checked = false;
+            });
+        }
+        updateAP(false);
+    });
+});
+</script>
+
+<div id="stats">
+  <label>STR: <input type="number" id="str" value="4" min="0"></label>
+  <label>DEX: <input type="number" id="dex" value="4" min="0"></label>
+  <label>INT: <input type="number" id="int" value="4" min="0"></label>
+  <label>LUK: <input type="number" id="luk" value="4" min="0"></label>
+  <label>ATT: 
+  <input type="number" id="att" value="0" min="0" title="Place all non-equip sources of ATT here. Arrows/stars/skills/etc">
+  </label>
+  <label>M.ATT: <input type="number" id="matt" value="0" min="0"></label>
+</div>
+
+<p id="totalAP"></p>
+<p id="remainingAP"></p>
+<p id="errorMsg" style="color:red;font-weight:bold;"></p>
+<hr>
+<p id="equipTotals"><strong>Equipment Bonuses:</strong> STR +0, DEX +0, INT +0, LUK +0, ATT +0, M.ATT +0</p>
+<p id="combinedTotals"><strong>Total Stats:</strong> STR +0, DEX +0, INT +0, LUK +0, ATT +0, M.ATT +0</p>
+
+<script>
+/* ---------------- JOBS ---------------- */
+const jobs = [
+  {id:100, name:"Swordsman (1st)", mastery: 10 }, {id:110, name:"Fighter (2nd)", mastery: 60 },
+  {id:111, name:"Crusader (3rd)", mastery: 60 }, {id:112, name:"Hero (4th)", mastery: 60 },
+  {id:120, name:"Page (2nd)", mastery: 60 }, {id:121, name:"Knight (3rd)", mastery: 60 },
+  {id:122, name:"Paladin (4th)", mastery: 60 }, {id:130, name:"Spearman (2nd)", mastery: 60 },
+  {id:131, name:"Dragon Knight (3rd)", mastery: 60 }, {id:132, name:"Dark Knight (4th)", mastery: 80 },
+  {id:200, name:"Magician (1st)", mastery: 60 }, {id:210, name:"Wizard - Fire/Poison (2nd)", mastery: 60},
+  {id:211, name:"Mage - Fire/Poison (3rd)", mastery: 60}, {id:212, name:"Arch Mage F/P (4th)", mastery: 60},
+  {id:220, name:"Wizard - Ice/Lightning (2nd)", mastery: 60}, {id:221, name:"Mage - Ice/Lightning (3rd)", mastery: 60},
+  {id:222, name:"Arch Mage I/L (4th)", mastery: 60}, {id:230, name:"Cleric (2nd)", mastery: 60},
+  {id:231, name:"Priest (3rd)", mastery: 60}, {id:232, name:"Bishop (4th)", mastery: 60},
+  {id:300, name:"Archer (1st)", mastery: 10}, {id:310, name:"Hunter (2nd)", mastery: 60},
+  {id:311, name:"Ranger (3rd)", mastery: 60}, {id:312, name:"Bow Master (4th)", mastery: 90},
+  {id:320, name:"Crossbowman (2nd)", mastery: 60}, {id:321, name:"Sniper (3rd)", mastery: 60},
+  {id:322, name:"Marksman (4th)", mastery: 90}, {id:400, name:"Rogue (1st)", mastery: 10},
+  {id:410, name:"Assassin (2nd)", mastery: 60}, {id:411, name:"Hermit (3rd)", mastery: 60},
+  {id:412, name:"Night Lord (4th)", mastery: 60}, {id:420, name:"Bandit (2nd)", mastery: 60},
+  {id:421, name:"Chief Bandit (3rd)", mastery: 60}, {id:422, name:"Shadower (4th)", mastery: 60},
+  {id:500, name:"Pirate (1st)", mastery: 10}, {id:510, name:"Brawler (2nd)", mastery: 60},
+  {id:511, name:"Marauder (3rd)", mastery: 60}, {id:512, name:"Buccaneer (4th)", mastery: 65},
+  {id:520, name:"Gunslinger (2nd)", mastery: 60}, {id:521, name:"Outlaw (3rd)", mastery: 60},
+  {id:522, name:"Corsair (4th)", mastery: 60}
+];
+
+/* ---------------- ELEMENTS ---------------- */
+const jobSelect = document.getElementById("jobSelect");
+const placeholder = document.createElement("option");
+placeholder.textContent = "Select a Job...";
+placeholder.disabled = true;
+jobSelect.appendChild(placeholder);
+jobs.forEach(job => {
+  const cleanName = job.name.replace(/\s*\((1st|2nd|3rd|4th)\)\s*/i, "");
+  const opt = document.createElement("option");
+  opt.value = job.id;
+  opt.textContent = cleanName;
+  jobSelect.appendChild(opt);
+});
+
+const levelInput = document.getElementById("level");
+const statInputs = ["str","dex","int","luk"].map(id => document.getElementById(id));
+const totalDisplay = document.getElementById("totalAP");
+const remainingDisplay = document.getElementById("remainingAP");
+const errorMsg = document.getElementById("errorMsg");
+const equipTotalsDisplay = document.getElementById("equipTotals");
+const combinedTotalsDisplay = document.getElementById("combinedTotals");
+const attInput = document.getElementById("att");
+const mattInput = document.getElementById("matt");
+
+/* ---------------- SHARED EQUIPMENT DATA ---------------- */
+window.slotData = window.slotData || JSON.parse(localStorage.getItem("slotData") || "{}");
+let lastSlotDataJSON = JSON.stringify(window.slotData);
+
+/* ---------------- HELPERS ---------------- */
+function getJobTier(jobId){
+  if (!jobId) return 1;
+  const job = jobs.find(j=>j.id == jobId);
+  if (!job) return 1;
+  const match = job.name.match(/\((\d\w+)\)/);
+  return match ? parseInt(match[1]) : 1;
+}
+function computeTotalAP(level, tier){
+  return level * 5 + 20 + (tier===4 ? 10 : tier===3 ? 5 : 0);
+}
+
+/* ---------------- CORE UPDATE ---------------- */
+function updateAP(showError=true){
+  const level = parseInt(levelInput.value) || 1;
+  const tier = getJobTier(jobSelect.value);
+  const totalAP = computeTotalAP(level, tier);
+  const usedAP = statInputs.reduce((s,i)=>s+(parseInt(i.value)||0),0);
+  let remaining = totalAP - usedAP;
+
+  if (remaining < 0) {
+    if (showError) {
+      errorMsg.textContent = "⚠️ You cannot exceed total available AP!";
+    }
+    // rollback last change
+    const active = document.activeElement;
+    if (statInputs.includes(active)){
+      const val = parseInt(active.value)||0;
+      const over = usedAP - totalAP;
+      active.value = Math.max(0, val - over);
+    }
+    remaining = 0;
+  } else {
+    errorMsg.textContent = "";
+  }
+
+  totalDisplay.textContent = `Total AP Available: ${totalAP}`;
+  remainingDisplay.textContent = `Remaining AP: ${remaining}`;
+  updateTotals();
+}
+
+/* ---------------- EQUIPMENT TOTALS ---------------- */
+function getEquipTotals(){
+  const totals = {STR:0,DEX:0,INT:0,LUK:0,ATT:0,"M.ATT":0};
+  for (const slot in window.slotData){
+    const stats = window.slotData[slot];
+    for (const key in stats){
+      if (totals[key] !== undefined)
+        totals[key] += parseInt(stats[key]) || 0;
+    }
+  }
+  return totals;
+}
+
+/* ---------------- DISPLAY TOTALS ---------------- */
+function updateTotals() {
+    const eq = getEquipTotals();
+
+    // base stats
+    let base = {
+        STR: parseInt(str.value) || 0,
+        DEX: parseInt(dex.value) || 0,
+        INT: parseInt(int.value) || 0,
+        LUK: parseInt(luk.value) || 0,
+        ATT: parseInt(attInput.value) || 0,
+        "M.ATT": parseInt(mattInput.value) || 0
+    };
+
+    // Apply MW bonus only to STR/DEX/INT/LUK
+    let mwBonus = 0;
+    if (mw20Checkbox.checked) mwBonus = 0.10;
+    else if (mw30Checkbox.checked) mwBonus = 0.13;
+
+    if (mwBonus > 0) {
+        ["STR","DEX","INT","LUK"].forEach(k => {
+            base[k] = Math.floor(base[k] * (1 + mwBonus));
+        });
+    }
+
+    // Compute combined totals including equipment
+    const combined = {};
+    for (let k in eq) combined[k] = base[k] + eq[k];
+
+    // Update displays
+    equipTotalsDisplay.textContent =
+        `Equipment Bonuses: STR +${eq.STR}, DEX +${eq.DEX}, INT +${eq.INT}, LUK +${eq.LUK}, ATT +${eq.ATT}, M.ATT +${eq["M.ATT"]}`;
+
+    combinedTotalsDisplay.textContent =
+        `Total Stats: STR +${combined.STR}, DEX +${combined.DEX}, INT +${combined.INT}, LUK +${combined.LUK}, ATT +${combined.ATT}, M.ATT +${combined["M.ATT"]}`;
+
+    return combined;
+}
+
+/* ---------------- AUTO REFRESH LOOP ---------------- */
+setInterval(() => {
+  const current = localStorage.getItem("slotData");
+  if (current !== lastSlotDataJSON) {
+    lastSlotDataJSON = current;
+    window.slotData = JSON.parse(current || "{}");
+    updateTotals();
+  }
+}, 500);
+
+/* ---------------- EVENTS ---------------- */
+[jobSelect, levelInput, attInput, mattInput].forEach(el=>{
+  el.addEventListener("input", ()=>{
+    if (el === jobSelect) localStorage.setItem("jobId", jobSelect.value);
+    updateAP(false);
+
+    if (el === jobSelect) calculateDamage();
+  });
+});
+
+statInputs.forEach(i=>i.addEventListener("input", ()=>updateAP(true)));
+
+updateAP(false);
+</script>
+
+<hr>
+<label for="weaponSelect"><strong>Weapon Type:</strong></label>
+<select id="weaponSelect">
+  <option value="One Handed Sword">One Handed Sword</option>
+  <option value="One Handed Axe/BW/Wand/Staff (Swinging)">One Handed Axe/BW/Wand/Staff (Swinging)</option>
+  <option value="Two Handed Sword">Two Handed Sword</option>
+  <option value="Two Handed Axe/BW (Swinging)">Two Handed Axe/BW (Swinging)</option>
+  <option value="Spear (Stabbing)">Spear (Stabbing)</option>
+  <option value="Polearm (Swinging)">Polearm (Swinging)</option>
+  <option value="Dagger (Non-Thieves)">Dagger (Non-Thieves)</option>
+  <option value="Dagger/Throwing Stars (Thieves)">Dagger/Throwing Stars (Thieves)</option>
+  <option value="Bow">Bow</option>
+  <option value="Crossbow">Crossbow</option>
+  <option value="Knuckle">Knuckle</option>
+  <option value="Gun">Gun</option>
+  <option value="Wand">Wand</option>
+  <option value="Staff">Staff</option>
+</select>
+
+<br><br>
+<button id="calcBtn">Calculate Damage</button>
+
+<p id="damageOutput"><strong>Damage Range:</strong> —</p>
+
+<script>
+document.getElementById("calcBtn").addEventListener("click", async () => {
+    const combined = updateTotals(); // total stats including equipment
+
+    // get selected job
+    const jobId = parseInt(jobSelect.value);
+    const job = jobs.find(j => j.id === jobId);
+    const mastery = job ? (job.mastery || 0.6) / 100.0 : 0.6; // default 60% if missing
+
+    const data = {
+        level: parseInt(levelInput.value),
+        job: jobId,
+        STR: combined.STR,
+        DEX: combined.DEX,
+        INT: combined.INT,
+        LUK: combined.LUK,
+        ATT: combined.ATT,
+        MATT: combined.MATT,
+        weapon: document.getElementById("weaponSelect").value,
+        mastery: mastery
+    };
+
+    const response = await fetch("/calculate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data)
+    });
+
+    const result = await response.json();
+
+    document.getElementById("damageOutput").innerHTML =
+        `<strong>Damage Range:</strong> ${result.min.toLocaleString()} – ${result.max.toLocaleString()}`;
+});
+</script>
+
+<script>
+function calculateDamage() {
+    const combinedStats = updateTotals(); // includes equipment + MW bonuses
+
+    const data = {
+        level: parseInt(levelInput.value),
+        job: jobSelect.value,
+        STR: combinedStats.STR,
+        DEX: combinedStats.DEX,
+        INT: combinedStats.INT,
+        LUK: combinedStats.LUK,
+        ATT: combinedStats.ATT,
+        MATT: combinedStats["M.ATT"],
+        weapon: document.getElementById("weaponSelect").value
+    };
+
+    fetch("/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(result => {
+        document.getElementById("damageOutput").innerHTML =
+            `<strong>Damage Range:</strong> ${result.min.toLocaleString()} – ${result.max.toLocaleString()}`;
+    });
+}
+
+// Call it once on page load
+calculateDamage();
+</script>
+
+<button id="exportBtn">Export JSON</button>
+<button id="importBtn">Import JSON</button>
+<input type="file" id="importFile" style="display:none;" accept=".json">
+
+<script>
+const exportBtn = document.getElementById("exportBtn");
+const importBtn = document.getElementById("importBtn");
+const importFile = document.getElementById("importFile");
+
+// EXPORT
+exportBtn.addEventListener("click", () => {
+    const data = {
+        slotData: window.slotData,
+        jobId: jobSelect.value,
+        level: parseInt(levelInput.value) || 1,
+        stats: {
+            STR: parseInt(str.value),
+            DEX: parseInt(dex.value),
+            INT: parseInt(int.value),
+            LUK: parseInt(luk.value),
+            ATT: parseInt(attInput.value),
+            MATT: parseInt(mattInput.value)
+        },
+        weapon: document.getElementById("weaponSelect").value,
+        MW20: mw20Checkbox.checked,
+        MW30: mw30Checkbox.checked
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "character.json";
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+// IMPORT
+importBtn.addEventListener("click", () => {
+    importFile.click();
+});
+
+importFile.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        try {
+            const data = JSON.parse(ev.target.result);
+
+            // Restore equipment
+            window.slotData = data.slotData || {};
+            localStorage.setItem("slotData", JSON.stringify(window.slotData));
+
+            // Rebuild overlays
+            document.querySelectorAll(".slot").forEach(slotEl => {
+                const name = slotEl.dataset.name;
+                const old = slotEl.querySelector(".stats");
+                if (old) old.remove();
+                if (window.slotData[name]) addOverlay(slotEl, window.slotData[name]);
+            });
+
+
+            // Restore job & stats
+            if (data.jobId) jobSelect.value = data.jobId;
+            if (data.stats) {
+                str.value = data.stats.STR || 0;
+                dex.value = data.stats.DEX || 0;
+                int.value = data.stats.INT || 0;
+                luk.value = data.stats.LUK || 0;
+                attInput.value = data.stats.ATT || 0;
+                mattInput.value = data.stats.MATT || 0;
+            }
+            
+            // Restore level
+            if (data.level) levelInput.value = data.level;
+
+            // Restore weapon
+            if (data.weapon) document.getElementById("weaponSelect").value = data.weapon;
+
+            // Restore MW toggles
+            mw20Checkbox.checked = !!data.MW20;
+            mw30Checkbox.checked = !!data.MW30;
+
+            updateAP(false); // recalc totals
+
+            document.getElementById("calcBtn").click();
+
+            alert("Character loaded successfully!");
+        } catch (err) {
+            alert("Failed to load JSON: " + err.message);
+        }
+    };
+    reader.readAsText(file);
+});
+</script>
+
+<button id="clearBtn">Clear All</button>
+<script>
+const clearBtn = document.getElementById("clearBtn");
+clearBtn.addEventListener("click", () => {
+    if (!confirm("Are you sure you want to clear all stats and equipment?")) return;
+
+    // 1) Clear in-memory slot data and update the last-slot-json marker
+    window.slotData = {};
+    lastSlotDataJSON = JSON.stringify(window.slotData);
+
+    // 2) Remove localStorage entry
+    localStorage.removeItem("slotData");
+
+    // 3) Remove overlays from UI
+    document.querySelectorAll(".slot .stats").forEach(el => el.remove());
+
+    // 4) Reset popup state so it won't repopulate from stale values
+    currentSlot = null;
+    // If popup is open, hide it and clear its inputs
+    if (popup) {
+        popup.style.display = 'none';
+        overlay.style.display = 'none';
+    }
+    form.querySelectorAll('input[type="number"]').forEach(i => i.value = '');
+
+    // 5) Reset basic UI state & localStorage for other things
+    jobSelect.selectedIndex = 0;
+    localStorage.removeItem("jobId");
+    levelInput.value = 1;
+    localStorage.removeItem("level");
+    str.value = 4; dex.value = 4; int.value = 4; luk.value = 4;
+    attInput.value = 0; mattInput.value = 0;
+    document.getElementById("weaponSelect").selectedIndex = 0;
+    localStorage.removeItem("weapon");
+    mw20Checkbox.checked = false; localStorage.removeItem("MW20");
+    mw30Checkbox.checked = false; localStorage.removeItem("MW30");
+
+    // 6) Clear messages and force UI recalculation
+    errorMsg.textContent = "";
+    updateAP(false);
+    updateTotals();
+    calculateDamage();
+
+    alert("All stats, level, and equipment cleared!");
+});
+
+// ======= popup opener (replace your existing openPopup) =======
+function openPopup(slotName, element) {
+    currentSlot = { name: slotName, el: element };
+
+    popupTitle.textContent = `Edit ${slotName.toUpperCase()}`;
+
+    // Make sure we read the latest slotData (fresh reference)
+    window.slotData = window.slotData || JSON.parse(localStorage.getItem('slotData') || '{}');
+
+    // Pull values (if any). If none, set inputs to empty strings.
+    const values = window.slotData[slotName] || {};
+
+    // Fill form inputs explicitly; use '' if missing so old values do not persist
+    form.querySelectorAll('input').forEach(input => {
+        // Use values[input.name] if present, otherwise empty string
+        const v = (values.hasOwnProperty(input.name) && values[input.name] !== undefined) ? values[input.name] : '';
+        input.value = v;
+    });
+
+    // Show popup and overlay
+    popup.style.display = 'block';
+    overlay.style.display = 'block';
+}
+
+// ======= form submit handler (replace your existing form.onsubmit) =======
+form.onsubmit = e => {
+    e.preventDefault();
+    if (!currentSlot) return;
+
+    const formData = new FormData(form);
+    const values = {};
+
+    // Build values; treat empty / zero-ish as absence
+    formData.forEach((val, key) => {
+        const trimmed = String(val).trim();
+        // Only store if non-empty and not zero (you had this rule earlier)
+        if (trimmed !== '' && trimmed !== '0') {
+            values[key] = trimmed;
+        }
+    });
+
+    // If empty, remove the slot entry entirely
+    if (Object.keys(values).length === 0) {
+        // remove overlay if exists
+        const old = currentSlot.el.querySelector('.stats');
+        if (old) old.remove();
+
+        // remove slot from memory and persist
+        delete window.slotData[currentSlot.name];
+        localStorage.setItem('slotData', JSON.stringify(window.slotData));
+        lastSlotDataJSON = JSON.stringify(window.slotData);
+    } else {
+        // Save in memory & localStorage
+        window.slotData[currentSlot.name] = values;
+        localStorage.setItem('slotData', JSON.stringify(window.slotData));
+        lastSlotDataJSON = JSON.stringify(window.slotData);
+
+        // Update overlay in the UI
+        const old = currentSlot.el.querySelector('.stats');
+        if (old) old.remove();
+        addOverlay(currentSlot.el, values);
+    }
+
+    // Close popup
+    popup.style.display = 'none';
+    overlay.style.display = 'none';
+
+    // Recalculate totals & damage, since equips changed
+    updateAP(false);
+    updateTotals();
+    calculateDamage();
+};
+</script>
+
+
+<script>
+window.addEventListener("load", () => {
+    // Restore job selection
+    const savedJob = localStorage.getItem("jobId");
+    if (savedJob) {
+        jobSelect.value = savedJob;
+
+        // Manually trigger the input event to update AP & totals
+        const event = new Event('input', { bubbles: true });
+        jobSelect.dispatchEvent(event);
+    } else {
+        jobSelect.selectedIndex = 0;
+    }
+
+    // Update totals for equipment + stats
+    updateTotals();
+
+    // Calculate initial damage
+    calculateDamage();
+});
+
+// Function to trigger damage calculation whenever something changes
+function refreshStatsAndDamage() {
+    updateAP(false);        // updates remaining AP and totals
+    calculateDamage();      // updates damage range
+}
+
+// Inputs that affect stats
+[jobSelect, levelInput, attInput, mattInput, ...statInputs].forEach(el => {
+    el.addEventListener("input", () => {
+        if (el === jobSelect) localStorage.setItem("jobId", jobSelect.value);
+        refreshStatsAndDamage();
+    });
+});
+
+// MW toggles
+[mw20Checkbox, mw30Checkbox].forEach(el => {
+    el.addEventListener("change", () => {
+        // Save toggle states if desired
+        localStorage.setItem(el.id, el.checked);
+        refreshStatsAndDamage();
+    });
+});
+
+// Weapon selection
+document.getElementById("weaponSelect").addEventListener("change", () => {
+    localStorage.setItem("weapon", document.getElementById("weaponSelect").value);
+    refreshStatsAndDamage();
+});
+
+window.addEventListener("load", () => {
+    // Restore job
+    const savedJob = localStorage.getItem("jobId");
+    if (savedJob) jobSelect.value = savedJob;
+
+    // Restore other inputs from localStorage if needed
+    levelInput.value = parseInt(localStorage.getItem("level") || "1");
+    attInput.value = parseInt(localStorage.getItem("ATT") || "0");
+    mattInput.value = parseInt(localStorage.getItem("MATT") || "0");
+    mw20Checkbox.checked = localStorage.getItem("MW20") === "true";
+    mw30Checkbox.checked = localStorage.getItem("MW30") === "true";
+    document.getElementById("weaponSelect").value = localStorage.getItem("weapon") || "One Handed Sword";
+
+    // Restore slotData overlays
+    const savedSlotData = JSON.parse(localStorage.getItem("slotData") || "{}");
+    window.slotData = savedSlotData;
+    slots.forEach(s => {
+        const el = document.querySelector(`.slot[onclick*="${s.name}"]`);
+        if (!el) return;
+        const saved = savedSlotData[s.name];
+        if (saved) addOverlay(el, saved);
+    });
+
+    // Refresh totals and calculate damage
+    refreshStatsAndDamage();
+});
+
+</script>
+</body>
+</html>
