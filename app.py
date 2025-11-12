@@ -87,9 +87,9 @@ def calculate():
     max_dmg = max(0.0, max_dmg)
     min_dmg = max(0.0, min_dmg)
 
-    max_dmg = int(max_dmg)
-    min_dmg = int(min_dmg)
-    
+    max_dmg = int(max_dmg)
+    min_dmg = int(min_dmg)
+
     return jsonify({
         "min": round(min_dmg, 0),
         "max": round(max_dmg, 0)
@@ -97,6 +97,7 @@ def calculate():
 
 #if __name__ == "__main__":
 #    app.run(debug=True)
+
 
 
 
